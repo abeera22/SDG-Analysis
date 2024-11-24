@@ -1,0 +1,474 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Question 1
+
+```{r}
+library(tidyverse)
+library(dplyr)
+```
+
+```{r}
+q1indicators_file <- read_csv("country_indicators.csv")
+q1sdg_file <- read_csv("sdr_fd5e4b5a.csv")
+q1sdg_file <- q1sdg_file %>% rename(iso3 = `Country Code ISO3`)
+```
+
+Inner_join() country_codes.csv and country_indicators.csv select only the variables we want remove any rows with NA in goal 5 score
+
+```{r}
+question1_data <- inner_join(x=q1indicators_file, y=q1sdg_file, by='iso3')
+question1_data <- question1_data %>% select(
+'Goal 5 Dash',
+'sowc_early-childhood-development__attendance-in-early-childhood-education-2013-2021-r_total', 
+'sowc_education__learning_literacy-rate-2014-2022_youth-15-24-years-literacy-rate_female',
+'sowc_child-protection__child-labour-h-2013-2021-r_total', 
+'sowc_child-protection__child-marriage-h-2015-2021-r_married-by-18_female', 
+'sowc_social-protection-and-equity__distribution-of-social-protection-benefits-2010-2019-r_bottom-40', 
+'sowc_social-protection-and-equity__gini-coefficient-2010-2019-r_bottom-20', 
+'sowc_social-protection-and-equity__gdp-per-capita-current-us-2010-2019-r_bottom-20', 
+'sowc_wash__households-2020_at-least-basic-drinking-water-services_total', 
+'sowc_adolescents__transition-to-work-2013-2021-r_engagement-in-household-chores_male', 
+'sowc_adolescents__transition-to-work-2013-2021-r_engagement-in-household-chores_female', 
+'sowc_women-s-economic-empowerment__legal-frameworks-on-gender-equality-in-employment-2018-2020-r', 
+'sowc_women-s-economic-empowerment__mobile-phone-ownership-2014-2020-r_female_male', 
+'sowc_women-s-economic-empowerment__financial-inclusion-2014-2020-r_female_male'
+)
+question1_data <- question1_data %>% rename(Goal5Dash = 'Goal 5 Dash')
+question1_data <- question1_data %>% filter(Goal5Dash != 'Information unavailable')
+```
+
+Rename columns to a shorter name.
+
+```{r}
+question1_data <- question1_data %>% rename(childhood_education_attendance = 'sowc_early-childhood-development__attendance-in-early-childhood-education-2013-2021-r_total', 
+lit_rate_female = 'sowc_education__learning_literacy-rate-2014-2022_youth-15-24-years-literacy-rate_female', 
+child_labour = 'sowc_child-protection__child-labour-h-2013-2021-r_total',
+child_marriage = 'sowc_child-protection__child-marriage-h-2015-2021-r_married-by-18_female',
+social_protection = 'sowc_social-protection-and-equity__distribution-of-social-protection-benefits-2010-2019-r_bottom-40',
+gini_coefficient = 'sowc_social-protection-and-equity__gini-coefficient-2010-2019-r_bottom-20',
+gdp_per_capita = 'sowc_social-protection-and-equity__gdp-per-capita-current-us-2010-2019-r_bottom-20',
+drinking_water_services ='sowc_wash__households-2020_at-least-basic-drinking-water-services_total',
+chores_male = 'sowc_adolescents__transition-to-work-2013-2021-r_engagement-in-household-chores_male',
+chores_female = 'sowc_adolescents__transition-to-work-2013-2021-r_engagement-in-household-chores_female',
+legal_frameworks_employment_equality = 'sowc_women-s-economic-empowerment__legal-frameworks-on-gender-equality-in-employment-2018-2020-r',
+phone_ownership = 'sowc_women-s-economic-empowerment__mobile-phone-ownership-2014-2020-r_female_male',
+financial_inclusion = 'sowc_women-s-economic-empowerment__financial-inclusion-2014-2020-r_female_male'
+    )
+
+```
+
+Remove columns with lots of NA (more than 1/3 of the data is NA)
+
+```{r}
+question1_data <- question1_data %>% select(-lit_rate_female, -social_protection, -legal_frameworks_employment_equality, -phone_ownership, -financial_inclusion, -chores_male, -chores_female, -child_marriage, -childhood_education_attendance, -child_labour)
+```
+
+```{r}
+ggplot(question1_data, aes(x = Goal5Dash, fill = Goal5Dash)) + 
+  geom_bar() + theme_minimal() + labs(y = "Count", x = '', title = "Country's Goal 5 Progress")
+```
+
+Create high/low column "HIGH" if Goal5Score == "SDG achieved"
+
+```{r}
+question1_data <- question1_data %>% mutate(goal_5_high = 
+      ifelse(Goal5Dash == 'SDG achieved', 'HIGH', 'LOW'))
+```
+
+Create high/low column for GDP per capita
+
+```{r}
+GDP <- question1_data %>% select(goal_5_high, gdp_per_capita)
+GDP <- GDP %>% na.omit(GDP) %>% mutate(gdp_high = 
+        ifelse(gdp_per_capita >= quantile(gdp_per_capita, c(0.5)), "HIGH", "LOW"))
+```
+
+*TESTING GPD per Capita vs Equality:*
+
+**Null hypothesis**: percentage of "HIGH" goal_5_high in "LOW" gdp_high - percentage of "HIGH" goal_5_high in "HIGH" gdp_high = 0 **Alternative hypothesis**: percentage of "HIGH" goal_5_high in "LOW" gdp_high - percentage of "HIGH" goal_5_high in "HIGH" goal_5_high \< 0 \^The alternative hypothesis does not care about a positive value, because we do not want to worsen country's economic state in pursuit of more gender equality.
+
+TEST STATISTIC - calculate the test statistic from our data (difference of means of each group)
+
+```{r}
+test_statistic <- GDP %>% group_by(gdp_high) %>% summarise(means = mean(goal_5_high == "HIGH")) %>% summarise(value = diff(means)) %>% as.numeric()
+test_statistic
+```
+
+Create the simulation distribution
+
+```{r}
+set.seed(130)
+num_trials <- 1000
+simulations <- rep(NA, num_trials)
+for(i in 1:num_trials) {
+  simdata <- GDP %>% mutate(gdp_high = sample(gdp_high, replace=FALSE)) 
+  sim <- simdata %>% group_by(gdp_high) %>% summarise(means = mean(goal_5_high == "HIGH")) %>% summarise(value = diff(means)) %>% as.numeric()
+  
+  simulations[i] <- sim
+}
+simulation_results <- tibble(mean_diff = simulations)
+```
+
+Visualize this distribution
+
+```{r}
+ggplot(simulation_results, aes(x=mean_diff)) + 
+  geom_histogram(binwidth = 0.025, colour="black", fill="lightblue") +
+  labs(x = "Difference of Means", y = "Count", title = 'GDP per Capita Sampling Distribution')
+```
+
+Calculate p-value (1-sided)
+
+```{r}
+q1p_value <- sum(test_statistic >= simulation_results)/num_trials
+q1p_value
+```
+
+Since the p-value is greater than our significance level of 0.05, we cannot reject the null-hypothesis. Therefore we cannot conclude anything about a relationship between high GDP per capita in countries and high equality in countries.
+
+*Gini coefficient vs gender equality* Create HIGH/LOW column
+
+```{r}
+gini <- question1_data %>% select(goal_5_high, gini_coefficient)
+gini <- gini %>% na.omit(gini_coefficient) %>% mutate(gini_high = 
+        ifelse(gini_coefficient >= quantile(gini_coefficient, c(0.5)), "HIGH", "LOW"))
+```
+
+Test Statistic
+
+```{r}
+test_statistic_3 <- gini %>% group_by(gini_high) %>% summarise(means = mean(goal_5_high == "HIGH")) %>% summarise(value = diff(means)) %>% as.numeric()
+test_statistic_3
+```
+
+Create Simulation Distribution
+
+```{r}
+set.seed(130)
+num_trials <- 1000
+simulations_3 <- rep(NA, num_trials)
+for(i in 1:num_trials) {
+  simdata_3 <- gini %>% mutate(gini_high = sample(gini_high, replace=FALSE)) 
+  sim_3 <- simdata_3 %>% group_by(gini_high) %>% summarise(means = mean(goal_5_high == "HIGH")) %>% summarise(value = diff(means)) %>% as.numeric()
+  
+  simulations_3[i] <- sim_3
+}
+simulation_results_3 <- tibble(mean_diff = simulations_3)
+
+ggplot(simulation_results_3, aes(x=mean_diff)) + 
+  geom_histogram(bins=7, colour="black", fill="lightblue") +
+  labs(x = "Difference of Means", y = "Count", title = 'Gini Coefficient Sampling Distribution')
+```
+
+Calculate p-value
+
+```{r}
+q1p_value3 <- sum(test_statistic_3 <= simulation_results_3)/num_trials
+q1p_value3
+```
+
+Since we got a p-value 0.215 which is greater than the confidence level, we cannot reject the null hypothesis. Therefore we cannot not conclude a relationship between low gini coefficient and high gender equality.
+
+*DRINKING WATER*
+
+```{r}
+water <- question1_data %>% select(goal_5_high, drinking_water_services)
+water <- water %>% na.omit(drinking_water_services) %>% mutate(water_high = 
+        ifelse(drinking_water_services >= quantile(drinking_water_services, c(0.5)), "HIGH", "LOW"))
+```
+
+```{r}
+test_statistic_4 <- water %>% group_by(water_high) %>% summarise(means = mean(goal_5_high == "HIGH")) %>% summarise(value = diff(means)) %>% as.numeric()
+test_statistic_4
+```
+
+```{r}
+set.seed(130)
+num_trials <- 1000
+simulations_4 <- rep(NA, num_trials)
+for(i in 1:num_trials) {
+  simdata_4 <- water %>% mutate(water_high = sample(water_high, replace=FALSE)) 
+  sim_4 <- simdata_4 %>% group_by(water_high) %>% summarise(means = mean(goal_5_high == "HIGH")) %>% summarise(value = diff(means)) %>% as.numeric()
+  
+  simulations_4[i] <- sim_4
+}
+simulation_results_4 <- tibble(mean_diff = simulations_4)
+
+ggplot(simulation_results_4, aes(x=mean_diff)) + 
+  geom_histogram(binwidth = 0.025, colour="black", fill="lightblue") + 
+  labs(x = "Difference of Means", y = "Count", title = 'Drinking Water Sampling Distribution')
+```
+
+```{r}
+q1p_value4 <- sum(test_statistic_4 >= simulation_results_4)/num_trials
+q1p_value4
+```
+
+We got a p-value of 0.109, which is greater than our confidence interval so we cannot reject the null hypothesis. Therefore we cannot conclude anything about a relationship between high drinking water services and gender equality.
+
+# Question 2
+
+```{r}
+library(tidyverse)
+library(dplyr)
+```
+
+```{r}
+sdg_file <- read_csv("sdr_fd5e4b5a.csv")
+question2_data <- sdg_file %>% select('Goal 1 Score', 'Goal 2 Score', 'Goal 4 Score', 'Goal 5 Score', 'Goal 8 Score', 'Goal 10 Score', 'Goal 16 Score', 'Goal 1 Dash', 'Goal 2 Dash', 'Goal 4 Dash', 'Goal 8 Dash', 'Goal 10 Dash', 'Goal 16 Dash')
+question2_data <- question2_data %>% rename(Goal1 = 'Goal 1 Score', Goal2 = 'Goal 2 Score', Goal4 = 'Goal 4 Score', Goal8 = 'Goal 8 Score', Goal10 = 'Goal 10 Score', Goal5 = 'Goal 5 Score', Goal16 = 'Goal 16 Score', Goal1_dash = 'Goal 1 Dash', Goal2_dash = 'Goal 2 Dash', Goal4_dash = 'Goal 4 Dash', Goal8_dash = 'Goal 8 Dash', Goal10_dash = 'Goal 10 Dash', Goal16_dash = 'Goal 16 Dash')
+question2_data <- question2_data %>% filter_all(all_vars(!is.na(.)))
+
+question2_data <- question2_data %>%
+  filter(
+    Goal1_dash != "Information unavailable",
+    Goal2_dash != "Information unavailable",
+    Goal4_dash != "Information unavailable",
+    Goal8_dash != "Information unavailable",
+    Goal10_dash != "Information unavailable",
+    Goal16_dash != "Information unavailable"
+  )
+```
+
+Creating the fitted linear regression models:
+
+```{r}
+ggplot(question2_data, aes(x = Goal1, y = Goal5)) +
+  geom_point() +
+  labs(x = "No Poverty", y = "Gender Equality") + geom_smooth(method="lm", se=FALSE)
+
+ggplot(question2_data, aes(x = Goal2, y = Goal5)) +
+  geom_point() +
+  labs(x = "Zero Hunger", y = "Gender Equality") + geom_smooth(method="lm", se=FALSE)
+ggplot(question2_data, aes(x = Goal4, y = Goal5)) +
+  geom_point() +
+  labs(x = "Quality Education", y = "Gender Equality") + geom_smooth(method="lm", se=FALSE)
+ggplot(question2_data, aes(x = Goal8, y = Goal5)) +
+  geom_point() +
+  labs(x = "Decent Work and Economic Growth", y = "Gender Equality") + geom_smooth(method="lm", se=FALSE)
+ggplot(question2_data, aes(x = Goal10, y = Goal5)) +
+  geom_point() +
+  labs(x = "Reduced Inequalities", y = "Gender Equality") + geom_smooth(method="lm", se=FALSE)
+ggplot(question2_data, aes(x = Goal16, y = Goal5)) +
+  geom_point() +
+  labs(x = "Peace & Justice & Strong institutions", y = "Gender Equality") + geom_smooth(method="lm", se=FALSE)
+```
+
+Calculating correlation:
+
+```{r}
+goal1_r <- cor(x = question2_data$Goal1, y = question2_data$Goal5)
+goal2_r <- cor(x = question2_data$Goal2, y = question2_data$Goal5)
+goal4_r <- cor(x = question2_data$Goal4, y = question2_data$Goal5)
+goal8_r <- cor(x = question2_data$Goal8, y = question2_data$Goal5)
+goal10_r <- cor(x = question2_data$Goal10, y = question2_data$Goal5)
+goal16_r <- cor(x = question2_data$Goal16, y = question2_data$Goal5)
+
+correlation_table <- tibble(
+  Goal = c("No Poverty", "Zero Hunger", "Quality Education", "Decent Work & Economic Growth", "Reduced Inequalities", "Peace, Justice, and Strong Institutions"),
+  Correlation = c(goal1_r, goal2_r, goal4_r, goal8_r, goal10_r, goal16_r)
+)
+
+correlation_table <- correlation_table %>% 
+  arrange(desc(Correlation))
+
+print(correlation_table)
+
+ggplot(correlation_table, aes(x = reorder(Goal, -Correlation), y = Correlation, fill = Goal)) +
+  geom_bar(stat = "identity") +
+  labs(x = "SDG Goal", y = "Correlation with Goal 5", title = "Correlation of Other Goals with Goal 5") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = FALSE)
+
+```
+
+Finding the RMSE:
+
+```{r}
+set.seed(222);
+
+n <- nrow(question2_data)
+train <- sample_n(question2_data, size = round(0.8*n))
+test <- anti_join(question2_data, train)
+goal1_model <- lm(Goal5 ~ Goal1, data = question2_data)
+goal2_model <- lm(Goal5 ~ Goal2, data = question2_data)
+goal4_model <- lm(Goal5 ~ Goal4, data = question2_data)
+goal8_model <- lm(Goal5 ~ Goal8, data = question2_data)
+goal10_model <- lm(Goal5 ~ Goal10, data = question2_data)
+goal16_model <- lm(Goal5 ~ Goal16, data = question2_data)
+
+#Finding RMSE for goal 1
+yhat_test_1 <- predict(goal1_model, newdata = test)
+y_test_1 <- test$Goal1
+RMSE_1 <- sqrt(sum((y_test_1 - yhat_test_1)^2) / nrow(test))
+
+#Finding RMSE for goal 2
+yhat_test_2 <- predict(goal2_model, newdata = test)
+y_test_2 <- test$Goal2
+RMSE_2 <- sqrt(sum((y_test_2 - yhat_test_2)^2) / nrow(test))
+
+#Finding RMSE for goal 4
+yhat_test_4 <- predict(goal4_model, newdata = test)
+y_test_4 <- test$Goal4
+RMSE_4 <- sqrt(sum((y_test_4 - yhat_test_4)^2) / nrow(test))
+
+#Finding RMSE for goal 8
+yhat_test_8 <- predict(goal8_model, newdata = test)
+y_test_8 <- test$Goal8
+RMSE_8 <- sqrt(sum((y_test_8 - yhat_test_8)^2) / nrow(test))
+
+#Finding RMSE for goal 10
+yhat_test_10 <- predict(goal10_model, newdata = test)
+y_test_10 <- test$Goal10
+RMSE_10 <- sqrt(sum((y_test_10 - yhat_test_10)^2) / nrow(test))
+
+#Finding RMSE for goal 16
+yhat_test_16 <- predict(goal16_model, newdata = test)
+y_test_16 <- test$Goal16
+RMSE_16 <- sqrt(sum((y_test_16 - yhat_test_16)^2) / nrow(test))
+
+RMSE_table <- tibble(
+  Goal = c("Goal1", "Goal2", "Goal4", "Goal8", "Goal10", "Goal16"),
+  RMSE = c(RMSE_1, RMSE_2, RMSE_4, RMSE_8, RMSE_10, RMSE_16)
+)
+
+RMSE_table <- RMSE_table %>% 
+  arrange(RMSE)
+
+print(RMSE_table)
+```
+
+Boxplots:
+
+```{r}
+
+ggplot(data=question2_data, aes(x = Goal1_dash, y = Goal5)) +
+  geom_boxplot() +
+  labs(x = "Progress Towards No Poverty", y = "Gender Inequality Score")
+
+ggplot(data=question2_data, aes(x = Goal2_dash, y = Goal5)) +
+  geom_boxplot() +
+  labs(x = "Progress Towards Zero Hunger", y = "Gender Inequality Score")
+
+ggplot(data=question2_data, aes(x = Goal4_dash, y = Goal5)) +
+  geom_boxplot() +
+  labs(x = "Progress Towards Quality Education", y = "Gender Inequality Score")
+
+ggplot(data=question2_data, aes(x = Goal8_dash, y = Goal5)) +
+  geom_boxplot() +
+  labs(x = "Progress owards Decent Work and Economic Growth", y = "Gender Inequality Score")
+
+ggplot(data=question2_data, aes(x = Goal10_dash, y = Goal5)) +
+  geom_boxplot() +
+  labs(x = "Progress Towards Reduced Inequalities", y = "Gender Inequality Score")
+
+ggplot(data=question2_data, aes(x = Goal16_dash, y = Goal5)) +
+  geom_boxplot() +
+  labs(x = "Progress Towards Peace, Justice, and Strong Institutions", y = "Gender Inequality Score")
+```
+
+# Question 3
+
+```{r}
+library(rpart)
+library(rpart.plot)
+library(tidyverse)
+library(dplyr)
+library(parttree)
+
+
+set.seed(123)
+```
+
+According to question 1 there are no statistically significant metrics.
+
+From research question 2 we concluded the following goals to be the most relevant for gender equality:
+
+-   Quality education (Goal 4)
+
+-   Peace, Justice and Strong Institutions (Goal 16)
+
+-   Decent Work & Economic Growth (Goal 8)
+
+## Tree based on Question 2
+
+Obtaining and cleaning data:
+
+```{r}
+sdg_file <- read_csv("sdr_fd5e4b5a.csv")
+goals <- sdg_file %>% select(
+  'Goal 4 Score',
+  'Goal 8 Score',
+  'Goal 16 Score',
+  'Goal 5 Dash',
+  )
+
+goals <- goals %>% rename(
+  Goal4 = 'Goal 4 Score',
+  Goal8 = 'Goal 8 Score',
+  Goal16 = 'Goal 16 Score',
+  Goal5_dash = 'Goal 5 Dash',
+  )
+
+goals <- goals %>% filter_all(all_vars(!is.na(.)))
+
+goals <- goals %>%
+  filter(
+    Goal5_dash != "Information unavailable",
+  )
+```
+
+Creating a training and a testing dataset:
+
+```{r}
+goals_train <- sample_n(goals, size = round(0.8 * n()))
+goals_test <- anti_join(goals, goals_train)
+```
+
+```{r}
+tree <- rpart(Goal5_dash ~., data=goals_train, method="class")
+png(filename="tree2.png", width=6000, height=3500, res=700)
+rpart.plot(tree)
+dev.off()
+rpart.plot(tree)
+```
+
+Making predictions based on the test dataset and producing a confusion matrix
+
+```{r}
+predictions <- predict(tree, newdata = goals_test, type="class")
+confusion_matrix <- table(predictions, goals_test$Goal5_dash)
+confusion_matrix
+```
+
+Calculating the accuracy for the tree from the confusion matrix
+
+```{r}
+accuracy <- (5 + 8 + 6) / 36
+accuracy
+```
+
+```{r}
+
+ggplot(goals_train, aes(x = Goal4, y = Goal8)) +
+  geom_parttree(data = tree, alpha = 0.1, aes(fill = `Goal5_dash`)) + # <-- key layer
+  geom_point(aes(col = `Goal5_dash`)) +
+  theme_minimal()
+ggplot(goals_train, aes(x = Goal4, y = Goal16)) +
+  geom_parttree(data = tree, alpha = 0.1, aes(fill = `Goal5_dash`)) + # <-- key layer
+  geom_point(aes(col = `Goal5_dash`)) +
+  theme_minimal()
+ggplot(goals_train, aes(x = Goal8, y = Goal16)) +
+  geom_parttree(data = tree, alpha = 0.1, aes(fill = `Goal5_dash`)) + # <-- key layer
+  geom_point(aes(col = `Goal5_dash`)) +
+  theme_minimal()
+```
+
+## Conclusion
+
+-   Tree 1 accuracy - 53%
